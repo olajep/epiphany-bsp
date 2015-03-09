@@ -22,7 +22,7 @@ E_LIB_NAMES = -le-bsp -le-lib
 
 ########################################################
 
-all: dirs hello e_hello dot_product memtest bspbench lu_decomposition 
+all: dirs hello e_hello dot_product memtest bspbench lu_decomposition spmd
 
 dirs:
 	mkdir -p bin
@@ -77,6 +77,19 @@ bin/e_lu_decomposition.elf: lu_decomposition/e_lu_decomposition.c
 	e-gcc $(CFLAGS) -T ${ELDF} $(INCLUDES) -o $@ $< $(LIBS) $(E_LIBS) $(E_LIB_NAMES)
 
 bin/e_lu_decomposition.srec: bin/e_lu_decomposition.elf
+	e-objcopy --srec-forceS3 --output-target srec $< $@
+
+########################################################
+
+spmd: bin/host_spmd bin/e_spmd.elf bin/e_spmd.srec
+
+bin/host_spmd: spmd/host_spmd.c
+	gcc $(CFLAGS) $(INCLUDES) -o $@ $< $(LIBS) $(HOST_LIBS) $(HOST_LIB_NAMES)
+	
+bin/e_spmd.elf: spmd/e_spmd.c
+	e-gcc $(CFLAGS) -T ${ELDF} $(INCLUDES) -o $@ $< $(LIBS) $(E_LIBS) $(E_LIB_NAMES)
+
+bin/e_spmd.srec: bin/e_spmd.elf
 	e-objcopy --srec-forceS3 --output-target srec $< $@
 
 ########################################################
