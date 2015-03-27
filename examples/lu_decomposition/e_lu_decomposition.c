@@ -286,7 +286,7 @@ int main()
         }
     }
 
-    bsp_end(); // (11)
+    bsp_end();
 
     return 0;
 }

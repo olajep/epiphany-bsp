@@ -45,6 +45,8 @@ typedef struct
     float val;
 } z_sp_entry_f;
 
+// IMPORTANT: The task assumes the nonzeros be stored in column-major
+// order. This makes it much easier for the fan-in and fan-out stages.
 typedef struct
 {
     int n;
@@ -135,7 +137,7 @@ int main(int argc, char **argv)
     
     // dimensions
     int n = 50;
-    int m = n;
+    int m = 50;
 
     // initialize matrices and vectors
     z_sp_mat_f Id = eye(n);
@@ -171,7 +173,8 @@ for N and M in the host program.");
     int* offsets = malloc(sizeof(int) * bsp_nprocs());
     int* offsets_cyc = malloc(sizeof(int) * bsp_nprocs());
 
-    for (int i = 0; i < bsp_nprocs(); ++i) {
+    for (int i = 0; i < bsp_nprocs(); ++i)
+    {
         offsets[i] = 0; 
         offsets_cyc[i] = 0;
     }
@@ -195,6 +198,9 @@ for N and M in the host program.");
         offsets[s]++;
     }
 
+    // write offsets as counts
+    // .. FIXME
+ 
     for (int i = 0; i < bsp_nprocs(); ++i)
         offsets[i] = 0; 
 
@@ -222,16 +228,24 @@ for N and M in the host program.");
     }
 
     for (int i = 0; i < bsp_nprocs(); ++i)
+    {
+        offsets[s]++;
         offsets_cyc[i] = 0;
+    }
 
     // write u owner to processors
     for (int i = 0; i < n; ++i) {
         int s = rand() % bsp_nprocs();
         int t = i % bsp_nprocs;
+        ebsp_write(s,
+                &i,
+                (void*)(LOC_U_IDXS + offsets[t] * sizeof(int)),
+                sizeof(int));
         ebsp_write(t,
                 &s,
-                (void*)(LOC_V_OWNERS + offsets_cyc[t] * sizeof(int)),
+                (void*)(LOC_U_OWNERS + offsets_cyc[t] * sizeof(int)),
                 sizeof(int));
+        offsets[t]++;
         offsets_cyc[t]++;
     }
 

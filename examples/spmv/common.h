@@ -22,14 +22,30 @@ see the files COPYING and COPYING.LESSER. If not, see
 <http://www.gnu.org/licenses/>.
 */
 
-#define LOC_MAT_I = 0
-#define LOC_MAT_J = 0
-#define LOC_MAT_ENTRIES = 0
+#define ROWS 50 
+#define COLS 50
 
-#define LOC_V_OWNERS 0
-#define LOC_V_IDXS 0
-#define LOC_V_ENTRIES 0
+//-----------------------------------------------------------------------------
+// FIXME: EVERYTHING IN THIS SECTION SHOULD BE OBSOLETE 
+//-----------------------------------------------------------------------------
+#define LOC_MAT_I 0x4000 // O(nz)
+
+// here we assume nz is defined locally (both on host and task)
+// FIXME: very ugly implementation, will be fixed by dynamic allocation,
+// mailbox system, message passing, or load imbalance constraints.
+// We can only store 2048 numbers in one bank..
+#define LOC_MAT_J (LOC_MAT_I + nz * sizeof(int)) // O(nz)
+#define LOC_MAT_ENTRIES (LOC_MAT_J + nz * sizeof(int)) // O(nz)
+#define LOC_NZ (LOC_MAT_ENTRIES + nz * sizeof(float)) // O(1)
+
+#define LOC_V_OWNERS (LOC_NZ + sizeof(int)) //O(m / p)
+#define LOC_V_IDXS (LOC_V_OWNERS + ((m / nprocs) + 1) * sizeof(int)) // O(m)
+#define LOC_V_ENTRIES (LOC_V_IDXS + m * sizeof(int)) // O(m) 
+#define LOC_V_GET_FROM (LOC_V_ENTRIES + m * sizeof(float)) // O(m)
+#define LOC_V_COUNT (LOC_V_GET_FROM + m * sizeof(float)) // O(1)
 
 #define LOC_U_IDXS 0
 #define LOC_U_ENTRIES 0
 #define LOC_U_OWNERS 0
+#define LOC_U_COUNT 0
+//-----------------------------------------------------------------------------
