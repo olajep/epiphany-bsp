@@ -28,7 +28,7 @@ see the files COPYING and COPYING.LESSER. If not, see
 #include <math.h>
 #include "common.h"
 
-// Function for switch from col major to row major
+// Function for switch from row major to row major
 int row_major_cmp(const void* lhs, const void* rhs)
 {
     int diff_i = (z_triplet*)lhs->i - (z_triplet*)rhs->i;
@@ -72,25 +72,12 @@ int row_major_cmp(const void* lhs, const void* rhs)
 // need to be for the worst case. Later we will provide a real spmv 
 // that is optimized and can be used in real applications.
 
-typedef struct
-{
-    int i;
-    float value;
-} z_pair;
-
-typedef struct
-{
-    int i;
-    int j; 
-    float value;
-} z_triplet;
-
 int main()
 {
     bsp_begin();
 
     int nprocs = bsp_nprocs(); 
-    int p = bsp_pid();
+    int s = bsp_pid();
 
     // information about distribution
     // note: these are defined for the local (sub)objects
@@ -98,122 +85,186 @@ int main()
     int nv = 0;
     int nu = 0;
 
-    // information on matrix size
+    // information on (local) matrix size
+    int nrows = 0;
+    int ncols = 0;
+
     int rows = 0;
     int cols = 0;
 
     // FIXME: OBTAIN FROM BSP MESSAGE FROM ARM
-    // nz = bsp_move();
-    // nz = bsp_move();
-    // nz = bsp_move();
-    // nz = bsp_move();
-    // nz = bsp_move();
-    // nz = bsp_move();
-    // switch ase
+    // switch(tag(
+    // ...
+    //     nz = bsp_move();
     // ...
 
-    // FIXME: think about rounding (cols / nprocs)
-    // store lhs vector
-    z_pair* v_pairs = malloc(nv * sizeof(z_pair));
-    int* v_owners = malloc(cols / nprocs);
+    int* row_index = malloc(nrows * sizeof(int));
+    int* col_index = malloc(ncols * sizeof(int));
+    int* v_index = malloc(nv * sizeof(int));
+    int* u_index = malloc(nu * sizeof(int));
+    float* v_values = malloc(nv * sizeof(float));
 
-    // store matrix
-    z_triplet* a_triplets = malloc(nz * sizeof(z_triplet));
+    // store matrix in ROW MAJOR order
+    float* mat = malloc(nz * sizeof(float));
+    int* mat_inc = malloc(nz * sizeof(int));
 
-    // store rhs result vector
-    z_pair* u_pairs = malloc(nu * sizeof(z_pair));
-    int* u_owners = malloc(rows / nprocs);
+    // (b) obtain owners and remote indices
+    int* v_remote_idxs = malloc(ncols * sizeof(int));
+    int* v_src_procs = malloc(ncols * sizeof(int));
+    int* u_remote_idxs = malloc(nrows * sizeof(int));
+    int* u_src_procs = malloc(nrows * sizeof(int));
 
-    //-------------------------------------------------------------------------
-    // (1) OBTAIN v_j IF A_ij =/= 0 for some i
-    // note that we can loop over the vector simultaneously to check since 
-    // triplets are stored in *column major order* we can thus assume it is
-    // sorted by j
+//-------------------------------------------------------------------------
+// INITIALIZE (TODO: move to own function for repeated SpMV)
+//-------------------------------------------------------------------------
+//    initialize_src_idxs(s, nprocs, cols, rows, ncols, nrows, nv, nu,
+//            row_index, col_index, v_index, u_index,
+//            v_remote_idxs, v_src_procs, u_remote_idxs, u_src_procs);
+
+
+    // (0) initialize sources and remote indices
  
-    int v_get_count = 0;
-    int vk = 0;
-    int* v_get = 0;
+    // (a) Store ownership / local idx cyclically
+    // allocate
+    int* v_src_tmp = malloc((cols / nprocs) * sizeof(int));
+    int* v_remote_idxs_tmp = malloc((cols / nprocs) * sizeof(int));
+    int* u_src_tmp = malloc((rows / nprocs) * sizeof(int));
+    int* u_remote_idxs_tmp = malloc((rows / nprocs) * sizeof(int));
 
-    // (a) we see how many vector components we have to obtain from remote loc
-    for (int i = 0; i < nz; ++i)
-    {
-        if (i != (nz - 1) && a_triplets[i].j == a_triplets[i + 1].j)
-            continue;
-
-        // we know that this i represents the last one in a column
-        // we check if aij and vk are identical
-        while (v_pairs[vk].i < a_triplets[i].j)
-            ++vk;
-
-        // if we dont have the vector component,
-        // we append ais[i] to local v_idxs en obtain it later
-        if (v_pairs[vk].i != a_triplets[i].j)
-            ++v_get_count;
-    }
-
-    v_get = malloc(v_get_count * sizeof(z_pair));
-    vk = 0;
-    int k = 0;
-
-    // (b) we set the indices of the vector components that we have to obtain
-    // FIXME: put in single loop with (a)?
-    for (int i = 0; i < nz; ++i)
-    {
-        if (i != (nz - 1) && a_triplets[i].j == a_triplets[i + 1].j)
-            continue;
-
-        while (v_pairs[vk].i < a_triplets[i].j)
-            ++vk;
-
-        if (v_pairs[vk].i != a_triplets[i].j)
-            v_get[k++].i = ja_triplets[i].j;
-    }
-
-    int* v_get_owners = malloc(v_get_count * sizeof(int));
-    bsp_push_reg((void*)v_get_owners, v_get_count * sizeof(int));
+    // register vars
+    bsp_push_reg((void*)v_src_tmp, (cols / nprocs) * sizeof(int));
     bsp_sync();
 
-    // (c) obtain owners of the indices which we need to obtain
-    for (int i = 0; i < v_get_count; ++i)
-        bsp_get(v_get[i].i % nprocs,
-                v_get_owners,
-                i * sizeof(int),
+    bsp_push_reg((void*)v_remote_idxs_tmp, (cols / nprocs) * sizeof(int));
+    bsp_sync();
+
+    bsp_push_reg((void*)u_src_tmp, (rows / nprocs) * sizeof(int));
+    bsp_sync();
+
+    bsp_push_reg((void*)u_remote_idxs_tmp, (rows / nprocs) * sizeof(int));
+    bsp_sync();
+
+    // distribute own information
+    for (int i = 0; i < nv; ++i)
+    {
+        bsp_put(v_index[i] % nprocs,
+                &s,
+                v_src_tmp,
+                (v_index[i] / nprocs) * sizeof(int),
                 sizeof(int));
 
-    // registering here saves one l cost
-    bsp_push_reg((void*)v_get_owners, v_get_count * sizeof(z_pair));
-    bsp_sync();
-
-    // (d) finally obtain the actual vector components
-
-    // obtain owner of v_{v_idxs[i]} 
-    for (int i = 0; i < v_get_count; ++i)
-        bsp_get(v_get[i].i % nprocs,
-                v_get_owners,
-                i * sizeof(z_pair) + offsetof(z_pair, value),
+        bsp_put(v_index[i] % nprocs,
+                &i,
+                v_remote_idxs_tmp,
+                (v_index[i] / nprocs) * sizeof(int),
                 sizeof(int));
+    }
+
+    // distribute own information
+    for (int i = 0; i < nu; ++i)
+    {
+        bsp_put(u_index[i] % nprocs,
+                &s,
+                u_src_tmp,
+                (v_index[i] / nprocs) * sizeof(int),
+                sizeof(int));
+
+        bsp_put(u_index[i] % nprocs,
+                &i,
+                u_remote_idxs_tmp,
+                (u_index[i] / nprocs) * sizeof(int),
+                sizeof(int));
+    }
+
+    for (int i = 0; i < ncols; ++i)
+    {
+        // remote local index
+        bsp_get(col_index[i] % nprocs,
+                v_src_tmp,
+                (col_index[i] / nprocs) * sizeof(int),
+                &v_src_procs[i],
+                sizeof(int));
+
+        bsp_get(col_index[i] % nprocs,
+                v_remote_idxs_tmp,
+                (col_index[i] / nprocs) * sizeof(int),
+                &v_remote_idxs[i],
+                sizeof(int));
+    }
+
+    for (int i = 0; i < ncols; ++i)
+    {
+        // remote local index
+        bsp_get(col_index[i] % nprocs,
+                v_src_tmp,
+                (col_index[i] / nprocs) * sizeof(int),
+                &v_src_procs[i],
+                sizeof(int));
+
+        bsp_get(col_index[i] % nprocs,
+                v_remote_idxs_tmp,
+                (col_index[i] / nprocs) * sizeof(int),
+                &v_remote_idxs[i],
+                sizeof(int));
+    }
+
+    free(v_src_tmp);
+    free(v_remote_idxs_tmp);
+    free(u_src_tmp);
+    free(u_remote_idxs_tmp);
+
+    // pop vars
+    bsp_pop_reg((void*)v_src_tmp);
     bsp_sync();
- 
+
+    bsp_pop_reg((void*)v_remote_idxs_tmp);
+    bsp_sync();
+
+    bsp_pop_reg((void*)u_src_tmp);
+    bsp_sync();
+
+    bsp_pop_reg((void*)u_remote_idxs_tmp);
+    bsp_sync();
+
+
+//-------------------------------------------------------------------------
+// ACTUAL SPMV
+//-------------------------------------------------------------------------
+
+    float v_vec = malloc(ncols * sizeof(float));
+    float u_vec = malloc(nrows * sizeof(float));
+
+    bsp_push_reg((void*)v_values, nv * sizeof(int));
+    bsp_sync();
+
+    for (int i = 0; i < ncols; ++i)
+    {
+        bsp_get(v_src_procs[i],
+                v_values,
+                v_remote_idxs[i] * sizeof(int),
+                &v_vec[i],
+                sizeof(int));
+    }
+
+    bsp_sync();
+
     //-------------------------------------------------------------------------
     // (2) COMPUTE (u_i)_s 
+    // (3) SEND (u_i)_s to remote
 
-    // we now have the u_i we need.. how do we know the number of local rows
-    // first we switch to row major ordering (taking O(nz log(nz)) running time
-    // but we focus here on reducing memory footprint so we allow this
-    qsort(a_triplets, nz, sizeof(z_triplet), row_major_cmp);
+    for (int i = 0; i < nz; ++i)
+    {
+        u_vec[mat[i].i] += mat[i].value * v_vec[mat[i].j];
+
+        //bsp_send(u_src_procs[i
+    }
 
     // repeat the same trick as in (a), compute which u_is we have
 
     //-------------------------------------------------------------------------
-    // (3) SEND u_i TO OWNER. HOW DO YOU WE KNOW WHO IS THE OWNER OF u_i
-    // DISTRIBUTE OWNERS CYCLICALLY! (VIA ARM!)
-    
-    // ...
-    
-    //-------------------------------------------------------------------------
     // (4) COMPUTE u_i
 
-    // ...
+    // bsp_move...
 
     bsp_end();
 

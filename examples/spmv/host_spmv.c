@@ -72,7 +72,8 @@ z_sp_mat_f eye(int n)
     A.nz = n;
 
     A.entries = malloc(sizeof(z_sp_entry_f) * A.nz);
-    for (int k = 0; k < A.nz; ++k) {
+    for (int k = 0; k < A.nz; ++k)
+    {
         A.entries[k].i = k;
         A.entries[k].j = k;
         A.entries[k].val = k;
@@ -153,7 +154,8 @@ int main(int argc, char **argv)
     bsp_begin(bsp_nprocs());
 
     // distribute the matrix
-    switch (bsp_nprocs()) {
+    switch (bsp_nprocs())
+    {
         case 16:
             N = 4;
             M = 4;
@@ -170,6 +172,10 @@ for N and M in the host program.");
             return -1;
     }
 
+    // FIXME, generate matrix here, and distribute using some
+    // predetermined scheme such that we know ncols and nrows
+    // now its overly general
+
     int* offsets = malloc(sizeof(int) * bsp_nprocs());
     int* offsets_cyc = malloc(sizeof(int) * bsp_nprocs());
 
@@ -181,7 +187,8 @@ for N and M in the host program.");
 
     // write matrix triples to random processors
     // to ensure that thi SpMV methods works with any distribution
-    for (int i = 0; i < Id.nz; ++i) {
+    for (int i = 0; i < Id.nz; ++i)
+    {
         int s = rand() % bsp_nprocs();
         ebsp_write(s,
                 &Id.entries[i].i,
@@ -206,7 +213,8 @@ for N and M in the host program.");
 
     // write vector components to random processors
     // and write owner cyclically
-    for (int i = 0; i < n; ++i) {
+    for (int i = 0; i < n; ++i)
+    {
         int s = rand() % bsp_nprocs();
         ebsp_write(s,
                 &i,
@@ -234,7 +242,8 @@ for N and M in the host program.");
     }
 
     // write u owner to processors
-    for (int i = 0; i < n; ++i) {
+    for (int i = 0; i < n; ++i)
+    {
         int s = rand() % bsp_nprocs();
         int t = i % bsp_nprocs;
         ebsp_write(s,
