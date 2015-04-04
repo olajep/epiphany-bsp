@@ -252,19 +252,42 @@ int main()
     // (2) COMPUTE (u_i)_s 
     // (3) SEND (u_i)_s to remote
 
+    int cur_col = mat_inc[0]; 
+    int k = 0;
+    float u_i_s = 0.0;
     for (int i = 0; i < nz; ++i)
     {
-        u_vec[mat[i].i] += mat[i].value * v_vec[mat[i].j];
+        if (cur_col > ncols)
+        {
+            cur_col -= ncols;
 
-        //bsp_send(u_src_procs[i
+            bsp_send(u_src_procs[k], &u_remote_idxs[k], &u_i_s, sizeof(float));
+            k += 1;
+        }
+
+        u_i_s += mat[i].value * v_vec[cur_col];
+        cur_col += mat_inc[i];
     }
 
-    // repeat the same trick as in (a), compute which u_is we have
+    bsp_sync();
 
     //-------------------------------------------------------------------------
     // (4) COMPUTE u_i
 
-    // bsp_move...
+    int nmsgs = -1;
+    int nbytes = -1;
+    int idx = -1;
+    int status = -1;
+    float incoming_sum = -1;
+
+    bsp_qsize(&nmsgs, &nbytes);
+    for (int k = 0; k < nmsgs; ++k) {
+        bsp_get_tag(&status, &idx);
+        bsp_move(&incoming_sum, sizeof(float));
+        u[idx] += incoming_sum;
+    }
+
+    bsp_pop_reg((void*)v_values);
 
     bsp_end();
 
