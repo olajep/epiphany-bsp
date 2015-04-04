@@ -28,16 +28,6 @@ see the files COPYING and COPYING.LESSER. If not, see
 #include <math.h>
 #include "common.h"
 
-// Function for switch from row major to row major
-int row_major_cmp(const void* lhs, const void* rhs)
-{
-    int diff_i = (z_triplet*)lhs->i - (z_triplet*)rhs->i;
-    if (diff_i == 0)
-        return (z_triplet*)lhs->j - (z_triplet*)rhs->j;
-    else
-        return diff_i
-}
-
 // SPARSE MATRIX-VECTOR MULTIPLICATION
 // -----------------------------------
 // Algorithm:
@@ -75,6 +65,8 @@ int row_major_cmp(const void* lhs, const void* rhs)
 int main()
 {
     bsp_begin();
+
+    bsp_set_tagsize(sizeof(int));
 
     int nprocs = bsp_nprocs(); 
     int s = bsp_pid();
