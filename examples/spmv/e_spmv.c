@@ -84,6 +84,10 @@ int main()
     int rows = 0;
     int cols = 0;
 
+    int nmsgs_down = -1;
+    int nbytes_down = -1;
+    bsp_qsize(&nmsgs_down, &nbytes_down);
+
     // FIXME: OBTAIN FROM BSP MESSAGE FROM ARM
     // switch(tag(
     // ...
