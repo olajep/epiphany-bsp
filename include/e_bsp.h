@@ -26,6 +26,9 @@ see the files COPYING and COPYING.LESSER. If not, see
 
 #include "common.h"
 
+/* Needed for enabling compiler warnings for printf-style arguments. */
+#include "_ansi.h"
+
 /** Starts the BSP program.
 */
 void bsp_begin();

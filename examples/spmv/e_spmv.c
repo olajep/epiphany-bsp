@@ -66,7 +66,8 @@ int main()
 {
     bsp_begin();
 
-    bsp_set_tagsize(sizeof(int));
+    int tagsize = sizeof(int);
+    bsp_set_tagsize(&tagsize);
 
     int nprocs = bsp_nprocs(); 
     int s = bsp_pid();
@@ -267,10 +268,10 @@ int main()
                 sizeof(int));
     }
 
-    free(v_src_tmp);
-    free(v_remote_idxs_tmp);
-    free(u_src_tmp);
-    free(u_remote_idxs_tmp);
+    ebsp_free(v_src_tmp);
+    ebsp_free(v_remote_idxs_tmp);
+    ebsp_free(u_src_tmp);
+    ebsp_free(u_remote_idxs_tmp);
 
     // pop vars
     bsp_pop_reg((void*)v_src_tmp);
@@ -290,8 +291,8 @@ int main()
     // ACTUAL SPMV
     //-------------------------------------------------------------------------
 
-    float v_vec = ebsp_ext_malloc(ncols * sizeof(float));
-    float u_vec = ebsp_ext_malloc(nrows * sizeof(float));
+    float* v_vec = ebsp_ext_malloc(nv * sizeof(float));
+    float* u_vec = ebsp_ext_malloc(nu * sizeof(float));
 
     bsp_push_reg((void*)v_values, nv * sizeof(int));
     bsp_sync();
@@ -324,7 +325,7 @@ int main()
             k += 1;
         }
 
-        u_i_s += mat[i].value * v_vec[cur_col];
+        u_i_s += mat[i] * v_vec[cur_col];
         cur_col += mat_inc[i];
     }
 
@@ -344,7 +345,7 @@ int main()
     {
         bsp_get_tag(&status, &idx);
         bsp_move(&incoming_sum, sizeof(float));
-        u[idx] += incoming_sum;
+        u_vec[idx] += incoming_sum;
     }
 
     bsp_pop_reg((void*)v_values);

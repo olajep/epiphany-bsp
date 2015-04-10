@@ -55,19 +55,22 @@ int main(int argc, char **argv)
 
     // initialize matrices and vectors
     z_sp_mat_f A = eye(n);
-    z_mat_f v = rand(n, 1);
+    z_mat_f v = rand_mat(m, 1);
 
     // initializes components (indices) of u
     z_mat_f u = zeros(n, 1);
     for(int i = 0; i < n; ++i)
         u.entries[i] = i;
 
+    int nprocs = bsp_nprocs();
+
     // initialize the BSP system
     bsp_init("bin/e_spmd.srec", argc, argv);
-    bsp_begin(bsp_nprocs());
+    bsp_begin(nprocs);
+
 
     // distribute the matrix
-    switch (bsp_nprocs())
+    switch (nprocs)
     {
         case 16:
             N = 4;
@@ -86,36 +89,37 @@ int main(int argc, char **argv)
     }
 
     // partition in e.g. equal blocks and write to epiphany
-    int chunk = A.nz / bsp_nprocs();
-    int chunk_v = A.m / bsp_nprocs();
-    int chunk_u = A.n / bsp_nprocs();
+    int chunk = A.nz / nprocs;
+    int chunk_v = A.m / nprocs;
+    int chunk_u = A.n / nprocs;
 
-    int* row_idx = malloc(A->n * sizeof(int));
-    int* col_idx = malloc(A->m * sizeof(int));
+    int* row_idx = malloc(A.n * sizeof(int));
+    int* col_idx = malloc(A.m * sizeof(int));
     int* v_idx = malloc(chunk_v * sizeof(int));
     int* u_idx = malloc(chunk_u * sizeof(int));
 
     SPMV_DOWN_TAG tag;
-    ebsp_set_tagsize(sizeof(SPMV_DOWN_TAG));
+    int tagsize = sizeof(SPMV_DOWN_TAG);
+    ebsp_set_tagsize(&tagsize);
 
     int offset = 0;
     int offset_v = 0;
     int offset_u = 0;
-    for (int pid = 0; pid < bsp_nprocs(); pid++)
+    for (int pid = 0; pid < nprocs; pid++)
     {
         // FIXME: fix size of last chunk
-        if (pid == bsp_nprocs() - 1) {
-            chunk = A.nz % (A.nz / bsp_nprocs);
+        if (pid == nprocs - 1) {
+            chunk = A.nz % (A.nz / nprocs);
             if (chunk == 0)
-                chunk = A.nz / bsp_nprocs();
+                chunk = A.nz / nprocs;
 
-            chunk_v = A.m % (A.m / bsp_nprocs);
+            chunk_v = A.m % (A.m / nprocs);
             if (chunk_v == 0)
-                chunk_v = A.m / bsp_nprocs();
+                chunk_v = A.m / nprocs;
 
-            chunk_u = A.n % (A.n / bsp_nprocs);
+            chunk_u = A.n % (A.n / nprocs);
             if (chunk_u == 0)
-                chunk_u = A.n / bsp_nprocs();
+                chunk_u = A.n / nprocs;
         }
         
         tag = TAG_ROWS;
@@ -125,33 +129,33 @@ int main(int argc, char **argv)
         ebsp_send_down(pid, &tag, &A.m, sizeof(int));
 
         tag = TAG_MAT;
-        ebsp_send_down(pid, &tag, &A.mat[offset], chunk * sizeof(float));
+        ebsp_send_down(pid, &tag, &A.entries[offset], chunk * sizeof(float));
 
         tag = TAG_MAT_INC;
         ebsp_send_down(pid, &tag, &A.inc[offset], chunk * sizeof(float));
 
         // construct row_idx and col_idx
-        for(int i = 0; i < A->n; ++i)
+        for(int i = 0; i < A.n; ++i)
             row_idx[i] = 0;
 
-        for(int j = 0; j < A->m; ++j)
+        for(int j = 0; j < A.m; ++j)
             col_idx[j] = 0;
 
         for (int i = 0; i < chunk; ++i) {
             if (offset + i > A.nz)
                 break;
 
-            row_idx[A->mat[offset + i].i] = 1;
-            col_idx[A->mat[offset + i].j] = 1;
+            row_idx[A.entries[offset + i].i] = 1;
+            col_idx[A.entries[offset + i].j] = 1;
         }
 
         int r = 0;
-        for (int i = 0; i < A->n; ++i)
+        for (int i = 0; i < A.n; ++i)
             if (row_idx[i] != 0)
                 row_idx[r++] = i;
 
         int c = 0;
-        for (int j = 0; j < A->m; ++j)
+        for (int j = 0; j < A.m; ++j)
             if (col_idx[j] != 0)
                 col_idx[c++] = j;
 
@@ -162,10 +166,10 @@ int main(int argc, char **argv)
         ebsp_send_down(pid, &tag, &col_idx[0], c * sizeof(int));
 
         for (int i = 0; i < chunk_v; ++i)
-            v_idx = offset_v + i;
+            v_idx[i] = offset_v + i;
 
         for (int j = 0; j < chunk_u; ++j)
-            u_idx = offset_u + j;
+            u_idx[j] = offset_u + j;
 
         tag = TAG_V_IDX;
         ebsp_send_down(pid, &tag, &v_idx[0], chunk_v * sizeof(int));
