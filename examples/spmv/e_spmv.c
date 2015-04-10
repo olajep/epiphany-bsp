@@ -86,46 +86,109 @@ int main()
 
     int nmsgs_down = -1;
     int nbytes_down = -1;
-    bsp_qsize(&nmsgs_down, &nbytes_down);
-
-    // FIXME: OBTAIN FROM BSP MESSAGE FROM ARM
-    // switch(tag(
-    // ...
-    //     nz = bsp_move();
-    // ...
-
-    int* row_index = malloc(nrows * sizeof(int));
-    int* col_index = malloc(ncols * sizeof(int));
-    int* v_index = malloc(nv * sizeof(int));
-    int* u_index = malloc(nu * sizeof(int));
-    float* v_values = malloc(nv * sizeof(float));
 
     // store matrix in ROW MAJOR order
-    float* mat = malloc(nz * sizeof(float));
-    int* mat_inc = malloc(nz * sizeof(int));
+    float* mat = 0;
+    int* mat_inc = 0;
+
+    int* row_index = 0;
+    int* col_index = 0;
+    int* v_index = 0;
+    int* u_index = 0;
+    float* v_values = 0;
+
+    bsp_qsize(&nmsgs_down, &nbytes_down);
+    for (int msg = 0; msg < nmsgs_down; ++msg)
+    {
+        // NOTE: here we assume that SPMV_DOWN_TAG is same size on both
+        // architectures, with enum classes in C++11 we can guarantee this,
+        // but for now we force one tag to be 0xffffffff to force 32 bit int
+        SPMV_DOWN_TAG tag = -1;
+        int status = -1;
+        bsp_get_tag(&status, &tag);
+
+        switch(tag)
+        {
+            case TAG_ROWS:
+                bsp_move(&rows, sizeof(int));
+                break;
+
+            case TAG_COLS:
+                bsp_move(&cols, sizeof(int));
+                break;
+
+            case TAG_MAT:
+                if (nz == 0)
+                    nz = status / sizeof(int);
+                mat = ebsp_ext_malloc(nz * sizeof(float));
+                bsp_move(&mat, status);
+                break;
+
+            case TAG_MAT_INC:
+                if (nz == 0)
+                    nz = status / sizeof(int);
+                mat_inc = ebsp_ext_malloc(nz * sizeof(float));
+                bsp_move(&mat_inc, status);
+                break;
+
+            case TAG_ROW_IDX:
+                nrows = status / sizeof(int);
+                row_index = ebsp_ext_malloc(nrows * sizeof(int));
+                bsp_move(&row_index, status);
+                break;
+
+            case TAG_COL_IDX:
+                ncols = status / sizeof(int);
+                col_index = ebsp_ext_malloc(ncols * sizeof(int));
+                bsp_move(&col_index, status);
+                break;
+
+            case TAG_V_IDX:
+                nv = status / sizeof(int);
+                v_index = ebsp_ext_malloc(nv * sizeof(int));
+                bsp_move(&v_index, status);
+                break;
+
+            case TAG_U_IDX:
+                nu = status / sizeof(int);
+                u_index = ebsp_ext_malloc(nu * sizeof(int));
+                bsp_move(&u_index, status);
+                break;
+
+            case TAG_V_VALUES:
+                if (nv == 0)
+                    nv = status / sizeof(int);
+                v_values = ebsp_ext_malloc(nu * sizeof(float));
+                bsp_move(&v_values, status);
+                break;
+
+            default:
+                bsp_abort("SpMV: Tag not recognized when transferring matrix");
+                break;
+        }
+    }
 
     // (b) obtain owners and remote indices
-    int* v_remote_idxs = malloc(ncols * sizeof(int));
-    int* v_src_procs = malloc(ncols * sizeof(int));
-    int* u_remote_idxs = malloc(nrows * sizeof(int));
-    int* u_src_procs = malloc(nrows * sizeof(int));
+    int* v_remote_idxs = ebsp_ext_malloc(ncols * sizeof(int));
+    int* v_src_procs = ebsp_ext_malloc(ncols * sizeof(int));
+    int* u_remote_idxs = ebsp_ext_malloc(nrows * sizeof(int));
+    int* u_src_procs = ebsp_ext_malloc(nrows * sizeof(int));
 
-//-------------------------------------------------------------------------
-// INITIALIZE (TODO: move to own function for repeated SpMV)
-//-------------------------------------------------------------------------
-//    initialize_src_idxs(s, nprocs, cols, rows, ncols, nrows, nv, nu,
-//            row_index, col_index, v_index, u_index,
-//            v_remote_idxs, v_src_procs, u_remote_idxs, u_src_procs);
-
-
-    // (0) initialize sources and remote indices
+    //-------------------------------------------------------------------------
+    // INITIALIZE (TODO: move to own function for repeated SpMV)
+    //-------------------------------------------------------------------------
+    //    initialize_src_idxs(s, nprocs, cols, rows, ncols, nrows, nv, nu,
+    //            row_index, col_index, v_index, u_index,
+    //            v_remote_idxs, v_src_procs, u_remote_idxs, u_src_procs);
  
+    // (0) initialize sources and remote indices
+
     // (a) Store ownership / local idx cyclically
     // allocate
-    int* v_src_tmp = malloc((cols / nprocs) * sizeof(int));
-    int* v_remote_idxs_tmp = malloc((cols / nprocs) * sizeof(int));
-    int* u_src_tmp = malloc((rows / nprocs) * sizeof(int));
-    int* u_remote_idxs_tmp = malloc((rows / nprocs) * sizeof(int));
+    int* v_src_tmp = ebsp_ext_malloc((cols / nprocs) * sizeof(int));
+    int* v_remote_idxs_tmp = ebsp_ext_malloc((cols / nprocs) * sizeof(int));
+    int* u_src_tmp = ebsp_ext_malloc((rows / nprocs) * sizeof(int));
+    int* u_remote_idxs_tmp = ebsp_ext_malloc((rows / nprocs) * sizeof(int));
 
     // register vars
     bsp_push_reg((void*)v_src_tmp, (cols / nprocs) * sizeof(int));
@@ -223,12 +286,12 @@ int main()
     bsp_sync();
 
 
-//-------------------------------------------------------------------------
-// ACTUAL SPMV
-//-------------------------------------------------------------------------
+    //-------------------------------------------------------------------------
+    // ACTUAL SPMV
+    //-------------------------------------------------------------------------
 
-    float v_vec = malloc(ncols * sizeof(float));
-    float u_vec = malloc(nrows * sizeof(float));
+    float v_vec = ebsp_ext_malloc(ncols * sizeof(float));
+    float u_vec = ebsp_ext_malloc(nrows * sizeof(float));
 
     bsp_push_reg((void*)v_values, nv * sizeof(int));
     bsp_sync();
@@ -277,7 +340,8 @@ int main()
     float incoming_sum = -1;
 
     bsp_qsize(&nmsgs, &nbytes);
-    for (int k = 0; k < nmsgs; ++k) {
+    for (int k = 0; k < nmsgs; ++k)
+    {
         bsp_get_tag(&status, &idx);
         bsp_move(&incoming_sum, sizeof(float));
         u[idx] += incoming_sum;
@@ -286,6 +350,8 @@ int main()
     bsp_pop_reg((void*)v_values);
 
     bsp_end();
+
+    // FIXME: ebsp_free everything
 
     return 0;
 }

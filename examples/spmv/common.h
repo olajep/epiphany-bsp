@@ -24,7 +24,6 @@ see the files COPYING and COPYING.LESSER. If not, see
 
 typedef enum
 {
-    // Phase (1)
     TAG_ROWS = 1,       // O(1)
     TAG_COLS = 2,       // O(1)
     TAG_MAT = 3,        // O(nz)
@@ -33,5 +32,5 @@ typedef enum
     TAG_COL_IDX = 6,   // O(ncols)
     TAG_U_IDX = 7,     // O(nu)
     TAG_V_IDX = 8,     // O(nv)
-    TAG_V_VALUES = 9  // O(nv)
+    TAG_V_VALUES = 0xffffffff  // O(nv)
 } SPMV_DOWN_TAG;

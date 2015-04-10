@@ -28,6 +28,7 @@ see the files COPYING and COPYING.LESSER. If not, see
 #include <stdlib.h>
 #include <stdio.h>
 
+#include "zee_matrix.h"
 #include "common.h"
 
 #define DEBUG
@@ -35,94 +36,6 @@ see the files COPYING and COPYING.LESSER. If not, see
 // information on matrix and procs
 int N = -1;
 int M = -1;
-
-// FIXME: Taken from our Zee library
-// MATRIX TYPES
-typedef struct
-{
-    int i;
-    int j;
-    float val;
-} z_sp_entry_f;
-
-// IMPORTANT: The task assumes the nonzeros be stored in column-major
-// order. This makes it much easier for the fan-in and fan-out stages.
-typedef struct
-{
-    int n;
-    int m;
-    int nz;
-    z_sp_entry_f* entries;
-} z_sp_mat_f;
-
-typedef struct
-{
-    int n;
-    int m;
-    float* entries;
-} z_mat_f;
-
-// MATRIX FUNCTIONS
-z_sp_mat_f eye(int n)
-{
-    z_sp_mat_f A;
-
-    A.n = n;
-    A.m = n;
-    A.nz = n;
-
-    A.entries = malloc(sizeof(z_sp_entry_f) * A.nz);
-    for (int k = 0; k < A.nz; ++k)
-    {
-        A.entries[k].i = k;
-        A.entries[k].j = k;
-        A.entries[k].val = k;
-    }
-
-    return A;
-}
-
-z_mat_f rand(int n, int m)
-{
-    z_mat_f A;
-
-    A.n = n;
-    A.m = m;
-
-    A.entries = malloc(sizeof(float) * n * m);
-    for (int i = 0; i < n; ++i)
-        for (int j = 0; j < n; ++j)
-            A.entries[k] = rand() / RAND_MAX;
-
-    return A;
-}
-
-
-z_mat_f zeros(int n, int m)
-{
-    z_mat_f A;
-
-    A.n = n;
-    A.m = m;
-
-    A.entries = malloc(sizeof(float) * n * m);
-    for (int i = 0; i < n; ++i)
-        for (int j = 0; j < n; ++j)
-            A.entries[k] = 0.0f;
-
-    return A;
-}
-
-void z_mat_destroy(z_mat_f A)
-{
-    free(A.entries);
-}
-
-
-void z_sp_mat_destroy(z_sp_mat_f A)
-{
-    free(A.entries);
-}
 
 //----------------------------------------------------------------------
 // SpMV on Host
@@ -135,13 +48,13 @@ int main(int argc, char **argv)
     // COMPUTE u = Av
     // where u, v are vectors of dimension n
     // and A is a sparse (n x m) matrix
-    
+
     // dimensions
     int n = 50;
     int m = 50;
 
     // initialize matrices and vectors
-    z_sp_mat_f Id = eye(n);
+    z_sp_mat_f A = eye(n);
     z_mat_f v = rand(n, 1);
 
     // initializes components (indices) of u
@@ -168,25 +81,120 @@ int main(int argc, char **argv)
 
         default:
             fprintf(stderr, "Unsupported processor count, please add values\
-for N and M in the host program.");
+                    for N and M in the host program.");
             return -1;
     }
 
-    // FIXME, generate matrix here, and distribute using some
-    // predetermined scheme such that we know ncols and nrows
-    // now its overly general
+    // partition in e.g. equal blocks and write to epiphany
+    int chunk = A.nz / bsp_nprocs();
+    int chunk_v = A.m / bsp_nprocs();
+    int chunk_u = A.n / bsp_nprocs();
 
-    ebsp_set_tagsize(
+    int* row_idx = malloc(A->n * sizeof(int));
+    int* col_idx = malloc(A->m * sizeof(int));
+    int* v_idx = malloc(chunk_v * sizeof(int));
+    int* u_idx = malloc(chunk_u * sizeof(int));
 
-#ifdef DEBUG
-    //ebsp_inspector_enable();
-#endif
+    SPMV_DOWN_TAG tag;
+    ebsp_set_tagsize(sizeof(SPMV_DOWN_TAG));
+
+    int offset = 0;
+    int offset_v = 0;
+    int offset_u = 0;
+    for (int pid = 0; pid < bsp_nprocs(); pid++)
+    {
+        // FIXME: fix size of last chunk
+        if (pid == bsp_nprocs() - 1) {
+            chunk = A.nz % (A.nz / bsp_nprocs);
+            if (chunk == 0)
+                chunk = A.nz / bsp_nprocs();
+
+            chunk_v = A.m % (A.m / bsp_nprocs);
+            if (chunk_v == 0)
+                chunk_v = A.m / bsp_nprocs();
+
+            chunk_u = A.n % (A.n / bsp_nprocs);
+            if (chunk_u == 0)
+                chunk_u = A.n / bsp_nprocs();
+        }
+        
+        tag = TAG_ROWS;
+        ebsp_send_down(pid, &tag, &A.n, sizeof(int));
+
+        tag = TAG_COLS;
+        ebsp_send_down(pid, &tag, &A.m, sizeof(int));
+
+        tag = TAG_MAT;
+        ebsp_send_down(pid, &tag, &A.mat[offset], chunk * sizeof(float));
+
+        tag = TAG_MAT_INC;
+        ebsp_send_down(pid, &tag, &A.inc[offset], chunk * sizeof(float));
+
+        // construct row_idx and col_idx
+        for(int i = 0; i < A->n; ++i)
+            row_idx[i] = 0;
+
+        for(int j = 0; j < A->m; ++j)
+            col_idx[j] = 0;
+
+        for (int i = 0; i < chunk; ++i) {
+            if (offset + i > A.nz)
+                break;
+
+            row_idx[A->mat[offset + i].i] = 1;
+            col_idx[A->mat[offset + i].j] = 1;
+        }
+
+        int r = 0;
+        for (int i = 0; i < A->n; ++i)
+            if (row_idx[i] != 0)
+                row_idx[r++] = i;
+
+        int c = 0;
+        for (int j = 0; j < A->m; ++j)
+            if (col_idx[j] != 0)
+                col_idx[c++] = j;
+
+        tag = TAG_ROW_IDX;
+        ebsp_send_down(pid, &tag, &row_idx[0], r * sizeof(int));
+
+        tag = TAG_COL_IDX;
+        ebsp_send_down(pid, &tag, &col_idx[0], c * sizeof(int));
+
+        for (int i = 0; i < chunk_v; ++i)
+            v_idx = offset_v + i;
+
+        for (int j = 0; j < chunk_u; ++j)
+            u_idx = offset_u + j;
+
+        tag = TAG_V_IDX;
+        ebsp_send_down(pid, &tag, &v_idx[0], chunk_v * sizeof(int));
+
+        tag = TAG_U_IDX;
+        ebsp_send_down(pid, &tag, &u_idx[0], chunk_u * sizeof(int));
+
+        tag = TAG_V_VALUES;
+        ebsp_send_down(pid, &tag, &v.entries[offset_v], chunk_v * sizeof(float));
+
+        offset += chunk;
+        offset_v += chunk_v;
+        offset_u += chunk_u;
+    }
+
+    free(u_idx);
+    free(v_idx);
+    free(col_idx);
+    free(row_idx);
 
     ebsp_spmd();
 
     // read result
- 
+
     bsp_end();
+
+    z_sp_mat_destroy(&A);
+    z_mat_destroy(&v);
+    z_mat_destroy(&u);
 
     return 0;
 }

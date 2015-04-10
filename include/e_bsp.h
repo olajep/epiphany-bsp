@@ -25,7 +25,6 @@ see the files COPYING and COPYING.LESSER. If not, see
 #pragma once
 
 #include "common.h"
-#include "_ansi.h"
 
 /** Starts the BSP program.
 */
@@ -129,23 +128,23 @@ void ebsp_send_up(const void *tag, const void *payload, int nbytes);
 void _EXFUN(bsp_abort, (const char *, ...)
         _ATTRIBUTE ((__format__ (__printf__, 1, 2))));
 
-    /*
-     * Allocate external memory.
-     * Keep in mind that this memory is slow so should not be used
-     * for floating point computations
-     */
-    void* ebsp_ext_malloc(unsigned int nbytes);
+/*
+ * Allocate external memory.
+ * Keep in mind that this memory is slow so should not be used
+ * for floating point computations
+ */
+void* ebsp_ext_malloc(unsigned int nbytes);
 
-    /*
-     * Free allocated external memory.
-     */
-    void ebsp_free(void* ptr);
+/*
+ * Free allocated external memory.
+ */
+void ebsp_free(void* ptr);
 
-    /** ebsp_message outputs a debug message by sending it to shared memory
-     * So that the host processor can output it to the terminal
-     * The attributes in this definition make sure that the compiler checks the
-     * arguments for errors
-     */
+/** ebsp_message outputs a debug message by sending it to shared memory
+ * So that the host processor can output it to the terminal
+ * The attributes in this definition make sure that the compiler checks the
+ * arguments for errors
+ */
 void _EXFUN(ebsp_message, (const char *, ...)
         _ATTRIBUTE ((__format__ (__printf__, 1, 2))));
 
