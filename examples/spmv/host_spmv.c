@@ -27,6 +27,7 @@ see the files COPYING and COPYING.LESSER. If not, see
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <assert.h>
 
 #include "zee_matrix.h"
 #include "common.h"
@@ -50,11 +51,12 @@ int main(int argc, char **argv)
     // and A is a sparse (n x m) matrix
 
     // dimensions
-    int n = 50;
-    int m = 50;
+    int n = 16;
+    int m = 16;
 
     // initialize matrices and vectors
     z_sp_mat_f A = eye(n);
+
     z_mat_f v = rand_mat(m, 1);
 
     // initializes components (indices) of u
@@ -62,12 +64,12 @@ int main(int argc, char **argv)
     for(int i = 0; i < n; ++i)
         u.entries[i] = i;
 
-    int nprocs = bsp_nprocs();
 
     // initialize the BSP system
-    bsp_init("bin/e_spmd.srec", argc, argv);
-    bsp_begin(nprocs);
+    bsp_init("bin/e_spmv.srec", argc, argv);
 
+    int nprocs = bsp_nprocs();
+    bsp_begin(nprocs);
 
     // distribute the matrix
     switch (nprocs)
@@ -83,18 +85,18 @@ int main(int argc, char **argv)
             break;
 
         default:
-            fprintf(stderr, "Unsupported processor count, please add values\
-                    for N and M in the host program.");
+            fprintf(stderr, "Unsupported processor count, please add values"
+                            "for N and M in the host program.");
             return -1;
     }
 
     // partition in e.g. equal blocks and write to epiphany
     int chunk = A.nz / nprocs;
-    int chunk_v = A.m / nprocs;
-    int chunk_u = A.n / nprocs;
+    int chunk_v = A.n / nprocs;
+    int chunk_u = A.m / nprocs;
 
-    int* row_idx = malloc(A.n * sizeof(int));
-    int* col_idx = malloc(A.m * sizeof(int));
+    int* row_idx = malloc(A.m * sizeof(int));
+    int* col_idx = malloc(A.n * sizeof(int));
     int* v_idx = malloc(chunk_v * sizeof(int));
     int* u_idx = malloc(chunk_u * sizeof(int));
 
@@ -113,13 +115,13 @@ int main(int argc, char **argv)
             if (chunk == 0)
                 chunk = A.nz / nprocs;
 
-            chunk_v = A.m % (A.m / nprocs);
+            chunk_v = A.n % (A.n / nprocs);
             if (chunk_v == 0)
-                chunk_v = A.m / nprocs;
+                chunk_v = A.n / nprocs;
 
-            chunk_u = A.n % (A.n / nprocs);
+            chunk_u = A.m % (A.m / nprocs);
             if (chunk_u == 0)
-                chunk_u = A.n / nprocs;
+                chunk_u = A.m / nprocs;
         }
         
         tag = TAG_ROWS;
@@ -131,14 +133,11 @@ int main(int argc, char **argv)
         tag = TAG_MAT;
         ebsp_send_down(pid, &tag, &A.entries[offset], chunk * sizeof(float));
 
-        tag = TAG_MAT_INC;
-        ebsp_send_down(pid, &tag, &A.inc[offset], chunk * sizeof(float));
-
         // construct row_idx and col_idx
-        for(int i = 0; i < A.n; ++i)
+        for(int i = 0; i < A.m; ++i)
             row_idx[i] = 0;
 
-        for(int j = 0; j < A.m; ++j)
+        for(int j = 0; j < A.n; ++j)
             col_idx[j] = 0;
 
         for (int i = 0; i < chunk; ++i) {
@@ -164,6 +163,10 @@ int main(int argc, char **argv)
 
         tag = TAG_COL_IDX;
         ebsp_send_down(pid, &tag, &col_idx[0], c * sizeof(int));
+
+        tag = TAG_MAT_INC;
+        // FIXME: INC should be local indices
+        ebsp_send_down(pid, &tag, &A.inc[offset], chunk * sizeof(float));
 
         for (int i = 0; i < chunk_v; ++i)
             v_idx[i] = offset_v + i;
@@ -193,8 +196,30 @@ int main(int argc, char **argv)
     ebsp_spmd();
 
     // read result
+    tagsize = sizeof(int);
+    ebsp_set_tagsize(&tagsize);
+
+    int nmsgs = -1;
+    int nbytes = -1;
+
+    ebsp_qsize(&nmsgs, &nbytes);
+
+    int status = -1;
+    int up_tag = -1;
+    for (int i = 0; i < nmsgs; i++)
+    {
+        ebsp_get_tag(&status, &up_tag);
+        printf("up_tag: %i\n", up_tag);
+        ebsp_move(&u.entries[up_tag], sizeof(float));
+    }
 
     bsp_end();
+
+    printf("v:\n");
+    z_mat_pretty_print(v);
+
+    printf("u:\n");
+    z_mat_pretty_print(u);
 
     z_sp_mat_destroy(&A);
     z_mat_destroy(&v);

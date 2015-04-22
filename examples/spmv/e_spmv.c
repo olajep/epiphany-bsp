@@ -98,6 +98,7 @@ int main()
     int* u_index = 0;
     float* v_values = 0;
 
+
     bsp_qsize(&nmsgs_down, &nbytes_down);
     for (int msg = 0; msg < nmsgs_down; ++msg)
     {
@@ -122,45 +123,45 @@ int main()
                 if (nz == 0)
                     nz = status / sizeof(int);
                 mat = ebsp_ext_malloc(nz * sizeof(float));
-                bsp_move(&mat, status);
+                bsp_move(mat, status);
                 break;
 
             case TAG_MAT_INC:
                 if (nz == 0)
                     nz = status / sizeof(int);
                 mat_inc = ebsp_ext_malloc(nz * sizeof(float));
-                bsp_move(&mat_inc, status);
+                bsp_move(mat_inc, status);
                 break;
 
             case TAG_ROW_IDX:
                 nrows = status / sizeof(int);
                 row_index = ebsp_ext_malloc(nrows * sizeof(int));
-                bsp_move(&row_index, status);
+                bsp_move(row_index, status);
                 break;
 
             case TAG_COL_IDX:
                 ncols = status / sizeof(int);
                 col_index = ebsp_ext_malloc(ncols * sizeof(int));
-                bsp_move(&col_index, status);
+                bsp_move(col_index, status);
                 break;
 
             case TAG_V_IDX:
                 nv = status / sizeof(int);
                 v_index = ebsp_ext_malloc(nv * sizeof(int));
-                bsp_move(&v_index, status);
+                bsp_move(v_index, status);
                 break;
 
             case TAG_U_IDX:
                 nu = status / sizeof(int);
                 u_index = ebsp_ext_malloc(nu * sizeof(int));
-                bsp_move(&u_index, status);
+                bsp_move(u_index, status);
                 break;
 
             case TAG_V_VALUES:
                 if (nv == 0)
                     nv = status / sizeof(int);
                 v_values = ebsp_ext_malloc(nu * sizeof(float));
-                bsp_move(&v_values, status);
+                bsp_move(v_values, status);
                 break;
 
             default:
@@ -204,6 +205,20 @@ int main()
     bsp_push_reg((void*)u_remote_idxs_tmp, (rows / nprocs) * sizeof(int));
     bsp_sync();
 
+//    ebsp_message("after push regs (%i x %i) (%i x %i) 0x%x 0x%x 0x%x 0x%x %i %i %i",
+//        rows,
+//        cols,
+//        nrows,
+//        ncols,
+//        (unsigned int)v_src_tmp,
+//        (unsigned int)u_src_tmp,
+//        (unsigned int)v_index,
+//        (unsigned int)u_index,
+//        nprocs,
+//        nv,
+//        nu);
+
+
     // distribute own information
     for (int i = 0; i < nv; ++i)
     {
@@ -236,6 +251,8 @@ int main()
                 sizeof(int));
     }
 
+    bsp_sync();
+
     for (int i = 0; i < ncols; ++i)
     {
         // remote local index
@@ -252,19 +269,19 @@ int main()
                 sizeof(int));
     }
 
-    for (int i = 0; i < ncols; ++i)
+    for (int i = 0; i < nrows; ++i)
     {
         // remote local index
-        bsp_get(col_index[i] % nprocs,
-                v_src_tmp,
-                (col_index[i] / nprocs) * sizeof(int),
-                &v_src_procs[i],
+        bsp_get(row_index[i] % nprocs,
+                u_src_tmp,
+                (row_index[i] / nprocs) * sizeof(int),
+                &u_src_procs[i],
                 sizeof(int));
 
-        bsp_get(col_index[i] % nprocs,
-                v_remote_idxs_tmp,
-                (col_index[i] / nprocs) * sizeof(int),
-                &v_remote_idxs[i],
+        bsp_get(row_index[i] % nprocs,
+                u_remote_idxs_tmp,
+                (row_index[i] / nprocs) * sizeof(int),
+                &u_remote_idxs[i],
                 sizeof(int));
     }
 
@@ -285,7 +302,6 @@ int main()
 
     bsp_pop_reg((void*)u_remote_idxs_tmp);
     bsp_sync();
-
 
     //-------------------------------------------------------------------------
     // ACTUAL SPMV
@@ -312,7 +328,7 @@ int main()
     // (2) COMPUTE (u_i)_s 
     // (3) SEND (u_i)_s to remote
 
-    int cur_col = mat_inc[0]; 
+    int cur_col = 0; //mat_inc[0]; 
     int k = 0;
     float u_i_s = 0.0;
     for (int i = 0; i < nz; ++i)
@@ -321,8 +337,10 @@ int main()
         {
             cur_col -= ncols;
 
+            ebsp_message("%f gets sent -> %i", u_i_s, u_src_procs[k]);
             bsp_send(u_src_procs[k], &u_remote_idxs[k], &u_i_s, sizeof(float));
             k += 1;
+            u_i_s = 0.0;
         }
 
         u_i_s += mat[i] * v_vec[cur_col];
@@ -341,18 +359,31 @@ int main()
     float incoming_sum = -1;
 
     bsp_qsize(&nmsgs, &nbytes);
+    ebsp_message("nmsgs: %i", nmsgs);
+
     for (int k = 0; k < nmsgs; ++k)
     {
         bsp_get_tag(&status, &idx);
         bsp_move(&incoming_sum, sizeof(float));
+        ebsp_message("u[%i] += %f\n", idx, incoming_sum);
         u_vec[idx] += incoming_sum;
     }
 
     bsp_pop_reg((void*)v_values);
 
-    bsp_end();
 
-    // FIXME: ebsp_free everything
+    tagsize = sizeof(int);
+    bsp_set_tagsize(&tagsize);
+
+    for (int j = 0; j < nu; ++j)
+    {
+        int tag = u_index[j];
+        ebsp_send_up(&tag, &u_vec[j], sizeof(float));
+    }
+
+    // FIXME: free everythhing
+
+    bsp_end();
 
     return 0;
 }
