@@ -296,6 +296,32 @@ void ebsp_create_down_stream(const void* src, int dst_core_id, int nbytes,
                              int chunksize);
 
 /**
+ * Manually create a down stream. The stream headers should be provided in
+ * the data at the location pointed to by `src`. This function intended to be
+ * used when the chunk size is the stream non-constant.
+ *
+ * @param src The data which should be streamed down to an Epiphany core.
+ * @param dst_core_id The processor identifier of the receiving core.
+ * @param nbytes The total number of bytes of the data to be streamed down.
+ * @param chunksize The size in bytes of a single chunk. Must be at least 16.
+ *
+ * The headers of a stream have the form:
+ *
+ *\code{.c}
+ * int previous_chunk_size;
+ * int this_chunk_size;
+ * // ... the actual chunk data
+ * \endcode
+ *
+ * This function outputs an error if `chunksize` is less than 16.
+ *
+ * @remarks The data is copied from `src`, such that the data `src` can be
+ *  safely freed or overwritten after this call.
+ */
+void ebsp_create_down_stream_raw(const void* src, int dst_core_id, int nbytes,
+                                 int max_chunksize);
+
+/**
  * Creates an up stream
  *
  * @param dst_core_id The processor identifier of the sending core.
