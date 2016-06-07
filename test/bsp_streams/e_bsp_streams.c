@@ -49,10 +49,10 @@ int main() {
     ebsp_open_down_stream((void**)&downchunkDouble, 4);
 
     if (s == 0)
-        ebsp_open_down_stream((void**)0, 5);
+        ebsp_open_down_stream((void**)0, 7);
     // expect: ($00: BSP ERROR: stream does not exist)
     if (s == 0)
-        ebsp_open_up_stream((void**)0, 5);
+        ebsp_open_up_stream((void**)0, 7);
     // expect: ($00: BSP ERROR: stream does not exist)
     if (s == 0)
         ebsp_open_down_stream((void**)0, 1);
@@ -89,10 +89,10 @@ int main() {
         ebsp_close_down_stream(2);
     // expect: ($00: BSP ERROR: tried to close closed stream)
     if (s == 0)
-        ebsp_close_down_stream(5);
+        ebsp_close_down_stream(7);
     // expect: ($00: BSP ERROR: stream does not exist)
     if (s == 0)
-        ebsp_close_up_stream(5);
+        ebsp_close_up_stream(7);
     // expect: ($00: BSP ERROR: stream does not exist)
 
     // New streaming API
