@@ -173,7 +173,7 @@ void* ebsp_stream_create(int processor_id, int stream_size, int token_size,
         (*(int*)dst_cursor) = 0; // write terminating header (next)
         dst_cursor += sizeof(int);
     } else {
-        // Write a terminating header, or upstreams will crash
+        // Write a single terminating header, or upstreams will crash
         (*(int*)dst_cursor) = 0; // prevsize
         dst_cursor += sizeof(int);
         (*(int*)dst_cursor) = 0; // nextsize

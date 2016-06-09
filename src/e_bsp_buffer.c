@@ -43,6 +43,15 @@ const char err_create_opened[] EXT_MEM_RO =
 const char err_out_of_memory[] EXT_MEM_RO =
     "BSP ERROR: could not allocate enough memory for stream";
 
+const char err_token_size[] EXT_MEM_RO =
+    "BSP ERROR: Stream contained token larger (%d) than maximum token size (%d) for stream. (truncated)";
+
+const char err_up_size_warning[] EXT_MEM_RO =
+    "BSP WARNING: Moving token of size %d up to stream %d with max token size %d";
+
+const char err_stream_full[] EXT_MEM_RO =
+    "BSP ERROR: Stream %d has %u space left, token of size %u can not be moved up.";
+
 void ebsp_set_up_chunk_size(unsigned stream_id, int nbytes) {
     ebsp_stream_descriptor* out_stream = &coredata.local_streams[stream_id];
 
@@ -190,26 +199,34 @@ int ebsp_move_chunk_up(void** address, unsigned stream_id, int prealloc) {
 }
 
 void _ebsp_write_chunk(ebsp_stream_descriptor* stream, void* target) {
-    // read 2nd int in header from ext (next size)
+    // read header from ext
+    int prev_size = *(int*)(stream->cursor);
     int chunk_size = *(int*)(stream->cursor + sizeof(int));
-    ebsp_dma_handle* desc = (ebsp_dma_handle*)&(stream->e_dma_desc);
 
     if (chunk_size != 0) // stream has not ended
     {
-        void* dst = target;
-        void* src = stream->cursor;
-
-        // write to current
-        ebsp_dma_push(desc, dst, src, chunk_size + 2 * sizeof(int));
-        // ebsp_dma_start();
+        void* dst = target + 2 * sizeof(int);
+        void* src = stream->cursor + 2 * sizeof(int);
 
         // jump over header+chunk
         stream->cursor = (void*)(((unsigned)(stream->cursor)) +
                                  2 * sizeof(int) + chunk_size);
-    } else {
-        // set next size to 0
-        *((int*)(target + sizeof(int))) = 0;
+
+        // If token is too large, truncate it.
+        // However DO jump the correct distance with cursor
+        if (chunk_size > stream->max_chunksize) {
+            ebsp_message(err_token_size, chunk_size, stream->max_chunksize);
+            chunk_size = stream->max_chunksize;
+        }
+
+        ebsp_dma_push(&stream->e_dma_desc, dst, src, chunk_size);
     }
+
+    // copy it to local
+    // we do NOT do this with the DMA because of the
+    // possible trunction done above
+    *(int*)(target) = prev_size;
+    *(int*)(target + sizeof(int)) = chunk_size;
 }
 
 int ebsp_open_down_stream(void** address, unsigned stream_id) {
@@ -469,25 +486,36 @@ void ebsp_stream_seek(int stream_id, int delta_tokens) {
             // read 2nd int (next size) in header
             int chunk_size = *(int*)(stream->cursor + sizeof(int));
             if (chunk_size == 0)
-                return;
+                break;
             stream->cursor += 2 * sizeof(int) + chunk_size;
         }
     } else { // backward
         if (delta_tokens == INT_MIN) {
             stream->cursor = stream->extmem_addr;
+        } else {
+            while (delta_tokens++) {
+                // read 1st int (prev size) in header
+                int chunk_size = *(int*)(stream->cursor);
+                if (chunk_size == 0)
+                    break;
+                stream->cursor -= 2 * sizeof(int) + chunk_size;
+            }
         }
+    }
 
-        while (delta_tokens++) {
-            // read 1st int (prev size) in header
-            int chunk_size = *(int*)(stream->cursor);
-            if (chunk_size == 0)
-                return;
-            stream->cursor -= 2 * sizeof(int) + chunk_size;
-        }
+    // If there was anything preloaded, discard it
+    if (stream->next_buffer != NULL) {
+        // Wait for a possible write to it
+        ebsp_dma_wait(&stream->e_dma_desc);
+        // Free it
+        ebsp_free(stream->next_buffer);
+        stream->next_buffer = NULL;
     }
 }
 
 int ebsp_stream_move_down(int stream_id, void** buffer, int preload) {
+    *buffer = 0;
+
     if (stream_id >= coredata.local_nstreams) {
         ebsp_message(err_no_such_stream);
         return 0;
@@ -585,6 +613,22 @@ int ebsp_stream_move_up(int stream_id, const void* data, int data_size,
     // Round data_size up to a multiple of 8
     // If this is not done, integer access to the headers will crash
     data_size = ((data_size + 8 - 1) / 8) * 8;
+
+    if (data_size > stream->max_chunksize) {
+        ebsp_message(err_up_size_warning, data_size, stream_id,
+                     stream->max_chunksize);
+    }
+
+    // Check if there is enough space in the stream,
+    // including terminating header
+    // Be carefull to use unsigned here, since these addresses
+    // are over the INT_MAX boundary.
+    unsigned space_required = (unsigned)data_size + 4 * sizeof(int);
+    unsigned space_left = (unsigned)stream->extmem_addr + (unsigned)stream->nbytes - (unsigned)stream->cursor;
+    if (space_left < space_required) {
+        ebsp_message(err_stream_full, stream_id, space_left, space_required);
+        return 0;
+    }
 
     // First write both the header before and after this token.
     int* header1 = (int*)(stream->cursor);
