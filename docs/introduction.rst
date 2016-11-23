@@ -75,7 +75,7 @@ For more advanced use you can download the latest EBSP release from the `release
 
     E_LIB_NAMES = -le-bsp -le-lib
 
-    all: bin bin/host_program bin/ecore_program.srec
+    all: bin bin/host_program bin/ecore_program.elf
 
     bin:
         @mkdir -p bin
@@ -87,9 +87,6 @@ For more advanced use you can download the latest EBSP release from the `release
     bin/ecore_program.elf: src/ecore_code.c
         @echo "CC $<"
         @e-gcc $(CFLAGS) -T ${ELDF} $(INCLUDES) -o $@ $< $(E_LIBS) $(E_LIB_NAMES)
-
-    bin/%.srec: bin/%.elf
-        @e-objcopy --srec-forceS3 --output-target srec $< $@
 
     clean:
         rm -r bin

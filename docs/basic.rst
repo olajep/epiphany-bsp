@@ -18,7 +18,7 @@ A host program consists of at least four EBSP functions, which are generally use
 
     int main(int argc, char **argv)
     {
-        bsp_init("ecore_program.srec", argc, argv);
+        bsp_init("ecore_program.elf", argc, argv);
         bsp_begin(16);
         ebsp_spmd();
         bsp_end();

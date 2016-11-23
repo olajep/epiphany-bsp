@@ -83,14 +83,14 @@ int ebsp_read(int pid, off_t src, void* dst, int size);
 
 /**
  * Initializes the BSP system.
- * @param e_name A string with the srec binary name of the Epiphany program
+ * @param e_name A string with the elf binary name of the Epiphany program
  * @param argc The number of input arguments
  * @param argv An array of strings with the input arguments
  * @return 1 on success, 0 on failure
  *
  * Sets up all the BSP variables and loads the epiphany BSP program.
  *
- * The string `e_name` must be of the form `myprogram.srec`. This function
+ * The string `e_name` must be of the form `myprogram.elf`. This function
  * will search for the file in the same directory as the host program,
  * and not in the current working directory.
  *
@@ -98,7 +98,7 @@ int ebsp_read(int pid, off_t src, void* dst, int size);
  * \code{.c}
  * int main(int argc, char** argv)
  * {
- *     bsp_init("e_program.srec", argc, argv);
+ *     bsp_init("e_program.elf", argc, argv);
  *     ...
  *     return 0;
  * }
@@ -146,7 +146,7 @@ int ebsp_spmd();
  * \code{.c}
  * int main(int argc, char** argv)
  * {
- *     bsp_init("e_program.srec", argc, argv);
+ *     bsp_init("e_program.elf", argc, argv);
  *     bsp_begin(bsp_nprocs());
  *     ...
  *     return 0;
@@ -166,7 +166,7 @@ int bsp_begin(int nprocs);
  * \code{.c}
  * int main(int argc, char** argv)
  * {
- *     bsp_init("e_program.srec", argc, argv);
+ *     bsp_init("e_program.elf", argc, argv);
  *     bsp_begin(bsp_nprocs());
  *     ebsp_spmd();
  *     bsp_end();
